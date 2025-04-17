@@ -8,6 +8,24 @@
 [build.environment]
   NEXT_USE_NETLIFY_EDGE = "true"
   NODE_VERSION = "18"
+  # Skip static generation for PDF-related pages
+  NEXT_PUBLIC_SKIP_BUILD_STATIC_GENERATION = "true"
+
+# Tell Netlify to not try to build these PDF-related paths statically
+[[redirects]]
+  from = "/pdf-viewer/*"
+  to = "/pdf-viewer/:splat"
+  status = 200
+
+[[redirects]]
+  from = "/direct-pdf/*"
+  to = "/direct-pdf/:splat"
+  status = 200
+
+[[redirects]]
+  from = "/find-in-pdf/*"
+  to = "/find-in-pdf/:splat"
+  status = 200
 
 # Ensure PDF files are handled correctly
 [[headers]]
