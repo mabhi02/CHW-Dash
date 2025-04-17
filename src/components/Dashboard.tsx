@@ -17,8 +17,9 @@ import {
   Flex,
   Badge,
   Button,
-  TextInput,
-  Textarea,
+  LineChart,
+  ProgressBar,
+  Divider,
 } from '@tremor/react';
 import {
   ArrowPathIcon,
@@ -26,19 +27,37 @@ import {
   TableCellsIcon,
   ChartPieIcon,
   BookmarkIcon,
-  ClockIcon,
+  DocumentChartBarIcon,
+  AcademicCapIcon,
+  CpuChipIcon,
+  ChatBubbleLeftRightIcon
 } from '@heroicons/react/24/outline';
 import useSWR from 'swr';
 import DataTable from './DataTable';
 import NotesPanel from './NotesPanel';
-import { Session } from '@/types';
+import { Session, SessionSummary, RagChunk, MatrixEvaluation } from '@/types';
 
 interface ApiResponse {
-  data: Session[];
+  data: {
+    conversations: Session[];
+    summaries: SessionSummary[];
+    chunks: RagChunk[];
+    matrix: MatrixEvaluation[];
+    sessionIds: string[];
+  };
   meta: {
-    count: number;
+    conversations: number;
+    summaries: number;
+    chunks: number;
+    matrix: number;
+    uniqueSessions: number;
     responseTime: number;
   };
+}
+
+interface RagChunkMetrics {
+  sourceDistribution: { name: string; value: number }[];
+  avgRelevanceScore: number;
 }
 
 const fetcher = async (url: string) => {
@@ -61,65 +80,204 @@ export default function Dashboard() {
   };
 
   // Process data for analytics
-  const processData = (sessions: Session[] = []) => {
-    if (!sessions || sessions.length === 0) {
+  const processData = (apiData?: ApiResponse) => {
+    if (!apiData || !apiData.data) {
       return {
-        responseDistribution: [],
+        phaseDistribution: [],
+        messageTypeDistribution: [],
         timeSeriesData: [],
+        sessionDiagnosisData: [],
+        matrixConfidenceData: [],
+        ragChunkMetrics: {
+          sourceDistribution: [],
+          avgRelevanceScore: 0
+        } as RagChunkMetrics,
         topSessions: [],
         totalSessions: 0,
-        totalResponses: 0,
-        avgResponsesPerSession: 0,
+        totalMessages: 0,
+        totalChunks: 0,
+        totalMatrixEvals: 0,
+        avgMessagesPerSession: 0,
+        avgChunksPerSession: 0,
       };
     }
 
-    // Calculate response type distribution
-    const initialTotal = sessions.reduce((sum, session) => sum + (session.initial_responses?.length || 0), 0);
-    const followupTotal = sessions.reduce((sum, session) => sum + (session.followup_responses?.length || 0), 0);
-    const examTotal = sessions.reduce((sum, session) => sum + (session.exam_responses?.length || 0), 0);
+    const { conversations, summaries, chunks, matrix, sessionIds } = apiData.data;
     
-    const responseDistribution = [
-      { name: 'Initial', value: initialTotal },
-      { name: 'Followup', value: followupTotal },
-      { name: 'Exam', value: examTotal },
+    // Calculate phase distribution
+    const phaseCounts = {
+      initial: 0,
+      followup: 0,
+      exam: 0,
+      complete: 0
+    };
+    
+    conversations.forEach(message => {
+      if (message.phase in phaseCounts) {
+        phaseCounts[message.phase as keyof typeof phaseCounts]++;
+      }
+    });
+    
+    const phaseDistribution = [
+      { name: 'Initial', value: phaseCounts.initial },
+      { name: 'Followup', value: phaseCounts.followup },
+      { name: 'Exam', value: phaseCounts.exam },
+      { name: 'Complete', value: phaseCounts.complete },
     ];
 
-    // Sort sessions by id to visualize trends over time
-    const sortedSessions = [...sessions].sort((a, b) => a.id - b.id);
-    const timeSeriesData = sortedSessions.map(session => ({
-      id: session.id,
-      name: `Session ${session.id}`,
-      initial: session.initial_responses?.length || 0,
-      followup: session.followup_responses?.length || 0,
-      exam: session.exam_responses?.length || 0,
+    // Calculate message type distribution
+    const typeCounts = {
+      user: 0,
+      assistant: 0
+    };
+    
+    conversations.forEach(message => {
+      if (message.message_type in typeCounts) {
+        typeCounts[message.message_type as keyof typeof typeCounts]++;
+      }
+    });
+    
+    const messageTypeDistribution = [
+      { name: 'User', value: typeCounts.user },
+      { name: 'Assistant', value: typeCounts.assistant },
+    ];
+
+    // Group by sessions for time series
+    const sessionMap = new Map<string, {
+      id: string;
+      messageCount: number;
+      chunkCount: number;
+      matrixCount: number;
+      timestamp?: string;
+    }>();
+    
+    // Initialize with all session IDs
+    sessionIds.forEach(id => {
+      sessionMap.set(id, {
+        id,
+        messageCount: 0,
+        chunkCount: 0,
+        matrixCount: 0
+      });
+    });
+    
+    // Add conversation data
+    conversations.forEach(message => {
+      const session = sessionMap.get(message.session_id);
+      if (session) {
+        session.messageCount++;
+        if (!session.timestamp || message.timestamp > session.timestamp) {
+          session.timestamp = message.timestamp;
+        }
+      }
+    });
+    
+    // Add chunk data
+    chunks.forEach(chunk => {
+      const session = sessionMap.get(chunk.session_id);
+      if (session) {
+        session.chunkCount++;
+      }
+    });
+    
+    // Add matrix data
+    matrix.forEach(evaluation => {
+      const session = sessionMap.get(evaluation.session_id);
+      if (session) {
+        session.matrixCount++;
+      }
+    });
+    
+    // Sort sessions by timestamp
+    const sortedSessions = Array.from(sessionMap.values())
+      .filter(s => s.timestamp) // Filter only those with timestamp
+      .sort((a, b) => {
+        if (!a.timestamp || !b.timestamp) return 0;
+        return new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime();
+      });
+    
+    // Create time series data
+    const timeSeriesData = sortedSessions.map((session, index) => ({
+      date: session.timestamp ? new Date(session.timestamp).toISOString().split('T')[0] : `Session ${index}`,
+      messages: session.messageCount,
+      chunks: session.chunkCount,
+      matrix: session.matrixCount,
     }));
 
-    // Get top sessions by total responses
-    const sessionsWithTotal = sessions.map(session => ({
-      id: session.id,
-      name: session.chat_name,
-      total: (session.initial_responses?.length || 0) + 
-             (session.followup_responses?.length || 0) + 
-             (session.exam_responses?.length || 0)
-    }));
+    // Session diagnosis data from summaries
+    const sessionDiagnosisData = summaries
+      .filter(s => s.diagnosis)
+      .map(summary => ({
+        sessionId: summary.session_id,
+        diagnosis: summary.diagnosis.length > 30 ? summary.diagnosis.substring(0, 30) + '...' : summary.diagnosis,
+        chunks: summary.chunks_used,
+      }))
+      .sort((a, b) => b.chunks - a.chunks)
+      .slice(0, 8);
+
+    // Matrix confidence data
+    const matrixConfidenceData = matrix
+      .filter(m => typeof m.confidence === 'number')
+      .map(m => ({
+        question: m.question.length > 25 ? m.question.substring(0, 25) + '...' : m.question,
+        confidence: m.confidence,
+        optimist: m.optimist_weight,
+        pessimist: m.pessimist_weight,
+      }))
+      .slice(0, 10);
+
+    // RAG chunk metrics
+    const chunkSources = new Map<string, number>();
+    chunks.forEach(chunk => {
+      if (chunk.source) {
+        const sourceKey = chunk.source.includes('/') 
+          ? chunk.source.split('/').pop() || chunk.source
+          : chunk.source;
+        
+        chunkSources.set(
+          sourceKey, 
+          (chunkSources.get(sourceKey) || 0) + 1
+        );
+      }
+    });
     
-    const topSessions = [...sessionsWithTotal]
-      .sort((a, b) => b.total - a.total)
-      .slice(0, 5);
+    const ragChunkMetrics: RagChunkMetrics = {
+      sourceDistribution: Array.from(chunkSources.entries())
+        .map(([name, value]) => ({ name, value }))
+        .sort((a, b) => b.value - a.value)
+        .slice(0, 6),
+      avgRelevanceScore: chunks.reduce((sum, chunk) => sum + (chunk.relevance_score || 0), 0) / (chunks.length || 1),
+    };
+
+    // Get top sessions by message count
+    const topSessions = sortedSessions
+      .sort((a, b) => b.messageCount - a.messageCount)
+      .slice(0, 5)
+      .map(session => ({
+        id: session.id,
+        messages: session.messageCount,
+        chunks: session.chunkCount,
+        matrix: session.matrixCount
+      }));
 
     return {
-      responseDistribution,
+      phaseDistribution,
+      messageTypeDistribution,
       timeSeriesData,
+      sessionDiagnosisData,
+      matrixConfidenceData,
+      ragChunkMetrics,
       topSessions,
-      totalSessions: sessions.length,
-      totalResponses: initialTotal + followupTotal + examTotal,
-      avgResponsesPerSession: sessions.length > 0 
-        ? (initialTotal + followupTotal + examTotal) / sessions.length 
-        : 0,
+      totalSessions: sessionIds.length,
+      totalMessages: conversations.length,
+      totalChunks: chunks.length,
+      totalMatrixEvals: matrix.length,
+      avgMessagesPerSession: sessionIds.length ? conversations.length / sessionIds.length : 0,
+      avgChunksPerSession: sessionIds.length ? chunks.length / sessionIds.length : 0,
     };
   };
 
-  const analytics = processData(data?.data);
+  const analytics = processData(data);
 
   return (
     <div className="p-4 md:p-8 mx-auto max-w-full">
@@ -127,7 +285,7 @@ export default function Dashboard() {
         <div>
           <div className="flex items-center gap-2">
             <Title className="text-white">ChatCHW Logs</Title>
-            <Badge color="blue">{data?.meta?.count || 0} Sessions</Badge>
+            <Badge color="blue">{data?.meta?.uniqueSessions || 0} Sessions</Badge>
           </div>
           <Text className="text-tremor-content mt-1">
             ChatCHW Logs & Analytics Dashboard
@@ -144,7 +302,7 @@ export default function Dashboard() {
       </div>
 
       {/* Analytics Overview Cards */}
-      <Grid numItems={1} numItemsMd={3} className="gap-6 mt-6">
+      <Grid numItems={1} numItemsSm={2} numItemsMd={4} className="gap-6 mt-6">
         <Col>
           <Card className="bg-tremor-background-subtle">
             <Flex alignItems="start">
@@ -162,10 +320,10 @@ export default function Dashboard() {
           <Card className="bg-tremor-background-subtle">
             <Flex alignItems="start">
               <div>
-                <Text>Total Responses</Text>
-                <Metric className="mt-2">{analytics.totalResponses}</Metric>
+                <Text>Total Messages</Text>
+                <Metric className="mt-2">{analytics.totalMessages}</Metric>
               </div>
-              <Badge icon={ChartBarIcon} color="green">
+              <Badge icon={ChatBubbleLeftRightIcon} color="green">
                 {isLoading ? 'Loading...' : 'Updated'}
               </Badge>
             </Flex>
@@ -175,10 +333,23 @@ export default function Dashboard() {
           <Card className="bg-tremor-background-subtle">
             <Flex alignItems="start">
               <div>
-                <Text>Avg Responses per Session</Text>
-                <Metric className="mt-2">{analytics.avgResponsesPerSession.toFixed(1)}</Metric>
+                <Text>RAG Chunks</Text>
+                <Metric className="mt-2">{analytics.totalChunks}</Metric>
               </div>
-              <Badge icon={ChartPieIcon} color="purple">
+              <Badge icon={DocumentChartBarIcon} color="amber">
+                {isLoading ? 'Loading...' : 'Updated'}
+              </Badge>
+            </Flex>
+          </Card>
+        </Col>
+        <Col>
+          <Card className="bg-tremor-background-subtle">
+            <Flex alignItems="start">
+              <div>
+                <Text>Matrix Evaluations</Text>
+                <Metric className="mt-2">{analytics.totalMatrixEvals}</Metric>
+              </div>
+              <Badge icon={CpuChipIcon} color="purple">
                 {isLoading ? 'Loading...' : 'Updated'}
               </Badge>
             </Flex>
@@ -195,7 +366,13 @@ export default function Dashboard() {
         <TabPanels>
           <TabPanel>
             <DataTable 
-              data={data?.data || []} 
+              data={data?.data || {
+                conversations: [],
+                summaries: [],
+                chunks: [],
+                matrix: [],
+                sessionIds: []
+              }} 
               isLoading={isLoading} 
               responseTime={data?.meta?.responseTime}
               error={error as Error} 
@@ -209,54 +386,161 @@ export default function Dashboard() {
                   Loading analytics data...
                 </Text>
               </Card>
-            ) : data?.data && data.data.length > 0 ? (
+            ) : data?.data ? (
               <>
-                <Grid numItems={1} numItemsMd={2} className="gap-6 mt-6">
-                  <Col>
-                    <Card className="bg-tremor-background-subtle">
-                      <Title>Response Distribution</Title>
-                      <Text className="mt-2">Breakdown of response types across sessions</Text>
+                {/* Message Analytics */}
+                <Card className="mt-6 bg-tremor-background-subtle">
+                  <Title>Message Analytics</Title>
+                  <Text className="mt-2">Breakdown of conversation messages across the system</Text>
+                  
+                  <Grid numItems={1} numItemsMd={2} className="gap-6 mt-6">
+                    <Col>
+                      <Title className="text-lg">Message Distribution by Phase</Title>
                       <DonutChart
                         className="mt-6"
-                        data={analytics.responseDistribution}
+                        data={analytics.phaseDistribution}
                         category="value"
                         index="name"
-                        colors={["blue", "cyan", "indigo"]}
+                        colors={["blue", "cyan", "indigo", "violet"]}
                         showAnimation={true}
-                        valueFormatter={(value) => `${value} responses`}
+                        valueFormatter={(value) => `${value} messages`}
                       />
-                    </Card>
-                  </Col>
-                  <Col>
-                    <Card className="bg-tremor-background-subtle">
-                      <Title>Response Trend</Title>
-                      <Text className="mt-2">Response count trends across sessions</Text>
-                      <AreaChart
-                        className="mt-6 h-64"
-                        data={analytics.timeSeriesData}
+                    </Col>
+                    <Col>
+                      <Title className="text-lg">Message Types</Title>
+                      <DonutChart
+                        className="mt-6"
+                        data={analytics.messageTypeDistribution}
+                        category="value"
                         index="name"
-                        categories={["initial", "followup", "exam"]}
-                        colors={["blue", "cyan", "indigo"]}
-                        valueFormatter={(value) => `${value} responses`}
-                        showLegend
+                        colors={["blue", "green"]}
                         showAnimation={true}
+                        valueFormatter={(value) => `${value} messages`}
                       />
-                    </Card>
-                  </Col>
-                </Grid>
-
-                <Card className="mt-6 bg-tremor-background-subtle">
-                  <Title>Top Sessions by Total Responses</Title>
-                  <Text className="mt-2">Sessions with the highest number of total responses</Text>
-                  <BarChart
-                    className="mt-6 h-60"
-                    data={analytics.topSessions}
-                    index="name"
-                    categories={["total"]}
-                    colors={["blue"]}
-                    valueFormatter={(value) => `${value} responses`}
+                    </Col>
+                  </Grid>
+                  
+                  <Divider className="my-8" />
+                  
+                  <Title className="text-lg">Activity Timeline</Title>
+                  <Text className="mt-2">Messages, chunks, and matrix evaluations over time</Text>
+                  <LineChart
+                    className="mt-6 h-72"
+                    data={analytics.timeSeriesData}
+                    index="date"
+                    categories={["messages", "chunks", "matrix"]}
+                    colors={["blue", "amber", "purple"]}
+                    valueFormatter={(value) => `${value}`}
+                    showLegend
                     showAnimation={true}
                   />
+                </Card>
+                
+                {/* RAG Chunks Analytics */}
+                <Card className="mt-6 bg-tremor-background-subtle">
+                  <Title>RAG Chunks Analytics</Title>
+                  <Text className="mt-2">Analysis of retrieval-augmented generation chunks</Text>
+                  
+                  <Grid numItems={1} numItemsMd={2} className="gap-6 mt-6">
+                    <Col>
+                      <Title className="text-lg">Chunks by Source Document</Title>
+                      <BarChart
+                        className="mt-6 h-60"
+                        data={analytics.ragChunkMetrics.sourceDistribution}
+                        index="name"
+                        categories={["value"]}
+                        colors={["amber"]}
+                        valueFormatter={(value) => `${value} chunks`}
+                        showAnimation={true}
+                      />
+                    </Col>
+                    <Col>
+                      <Title className="text-lg">Average Relevance Score</Title>
+                      <div className="mt-8">
+                        <Metric className="text-center mb-4">
+                          {analytics.ragChunkMetrics.avgRelevanceScore.toFixed(2)}
+                        </Metric>
+                        <ProgressBar 
+                          value={analytics.ragChunkMetrics.avgRelevanceScore * 100}
+                          color="amber"
+                          className="mt-2"
+                        />
+                        <div className="flex justify-between mt-2">
+                          <Text className="text-xs">0</Text>
+                          <Text className="text-xs">Relevance</Text>
+                          <Text className="text-xs">1.0</Text>
+                        </div>
+                      </div>
+                      
+                      <div className="mt-8">
+                        <Title className="text-lg">Chunks per Session</Title>
+                        <Metric className="text-center mt-4">
+                          {analytics.avgChunksPerSession.toFixed(1)}
+                        </Metric>
+                        <Text className="text-center text-sm mt-1">avg. chunks per session</Text>
+                      </div>
+                    </Col>
+                  </Grid>
+                </Card>
+                
+                {/* Matrix Analysis */}
+                <Card className="mt-6 bg-tremor-background-subtle">
+                  <Title>Matrix Evaluation Analytics</Title>
+                  <Text className="mt-2">Analysis of AI decision-making process</Text>
+                  
+                  <div className="mt-6">
+                    <Title className="text-lg">Matrix Confidence by Question</Title>
+                    <BarChart
+                      className="mt-6 h-80"
+                      data={analytics.matrixConfidenceData}
+                      index="question"
+                      categories={["confidence", "optimist", "pessimist"]}
+                      colors={["purple", "blue", "red"]}
+                      valueFormatter={(value) => `${(value * 100).toFixed(0)}%`}
+                      layout="vertical"
+                      showAnimation={true}
+                    />
+                  </div>
+                </Card>
+                
+                {/* Session Analysis */}
+                <Card className="mt-6 bg-tremor-background-subtle">
+                  <Title>Session Insights</Title>
+                  <Text className="mt-2">Detailed analysis of individual sessions</Text>
+                  
+                  <Grid numItems={1} numItemsMd={2} className="gap-6 mt-6">
+                    <Col>
+                      <Title className="text-lg">Top Sessions by Activity</Title>
+                      <BarChart
+                        className="mt-6 h-80"
+                        data={analytics.topSessions}
+                        index="id"
+                        categories={["messages", "chunks", "matrix"]}
+                        colors={["blue", "amber", "purple"]}
+                        valueFormatter={(value) => `${value}`}
+                        layout="vertical"
+                        showAnimation={true}
+                      />
+                    </Col>
+                    <Col>
+                      <Title className="text-lg">Diagnosis and Chunks Used</Title>
+                      <div className="mt-6 overflow-auto max-h-80">
+                        {analytics.sessionDiagnosisData.map((item, idx) => (
+                          <div key={idx} className="mb-4">
+                            <Flex>
+                              <Text className="truncate">{item.diagnosis}</Text>
+                              <Badge color="amber">{item.chunks} chunks</Badge>
+                            </Flex>
+                            <ProgressBar 
+                              value={(item.chunks / Math.max(...analytics.sessionDiagnosisData.map(d => d.chunks))) * 100}
+                              color="amber"
+                              className="mt-2"
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    </Col>
+                  </Grid>
                 </Card>
               </>
             ) : (

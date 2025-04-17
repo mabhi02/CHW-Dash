@@ -18,7 +18,9 @@ import {
   TrashIcon,
   CheckIcon,
   XMarkIcon,
+  DocumentTextIcon,
 } from '@heroicons/react/24/outline';
+import PdfUploader from './PdfUploader';
 
 interface Note {
   id: string;
@@ -139,54 +141,63 @@ export default function NotesPanel() {
   };
 
   return (
-    <div className="mt-6">
-      {/* Create new note */}
-      <Card className="bg-tremor-background-subtle mb-6">
-        <Title>Add New Note</Title>
-        <TextInput
-          className="mt-4"
-          placeholder="Note Title"
-          value={newNoteTitle}
-          onChange={(e) => setNewNoteTitle(e.target.value)}
-        />
-        <Textarea
-          className="mt-2"
-          placeholder="Note Content"
-          value={newNoteContent}
-          onChange={(e) => setNewNoteContent(e.target.value)}
-          rows={5}
-        />
-        <Flex className="mt-4 justify-end">
-          <Button 
-            icon={PlusIcon} 
-            onClick={addNote}
-          >
-            Save Note
-          </Button>
-        </Flex>
-        {savedMessage && (
-          <Text className="mt-2 text-green-500">{savedMessage}</Text>
-        )}
-      </Card>
+    <div className="mt-6 space-y-6">
+      <Grid numItems={1} numItemsMd={2} className="gap-6">
+        <Col>
+          {/* Create new note */}
+          <Card className="bg-gray-900 border border-gray-700">
+            <Title className="text-white">Add New Note</Title>
+            <TextInput
+              className="mt-4 bg-gray-800 text-white border-gray-700"
+              placeholder="Note Title"
+              value={newNoteTitle}
+              onChange={(e) => setNewNoteTitle(e.target.value)}
+            />
+            <Textarea
+              className="mt-2 bg-gray-800 text-white border-gray-700"
+              placeholder="Note Content"
+              value={newNoteContent}
+              onChange={(e) => setNewNoteContent(e.target.value)}
+              rows={5}
+            />
+            <Flex className="mt-4 justify-end">
+              <Button
+                icon={PlusIcon} 
+                onClick={addNote}
+                className="bg-blue-700 hover:bg-blue-600 text-white"
+              >
+                Save Note
+              </Button>
+            </Flex>
+            {savedMessage && (
+              <Text className="mt-2 text-green-500">{savedMessage}</Text>
+            )}
+          </Card>
+        </Col>
+        
+        <Col>
+          <PdfUploader />
+        </Col>
+      </Grid>
 
       {/* Notes list */}
       {notes.length > 0 ? (
         <Grid numItems={1} numItemsSm={2} numItemsLg={3} className="gap-6">
           {notes.map(note => (
             <Col key={note.id}>
-              <Card className="bg-tremor-background-subtle h-full">
+              <Card className="bg-gray-900 border border-gray-700">
                 {editingNoteId === note.id ? (
                   <>
                     <TextInput
                       value={editTitle}
                       onChange={(e) => setEditTitle(e.target.value)}
-                      className="mb-2"
+                      className="mb-2 bg-gray-800 text-white border-gray-700"
                     />
                     <Textarea
                       value={editContent}
                       onChange={(e) => setEditContent(e.target.value)}
                       rows={5}
-                      className="mb-2"
+                      className="mb-2 bg-gray-800 text-white border-gray-700"
                     />
                     <Flex className="justify-end gap-2 mt-4">
                       <Button 
@@ -200,6 +211,7 @@ export default function NotesPanel() {
                       <Button 
                         icon={CheckIcon} 
                         onClick={() => saveEdit(note.id)}
+                        className="bg-blue-700 hover:bg-blue-600 text-white"
                       >
                         Save
                       </Button>
@@ -208,7 +220,7 @@ export default function NotesPanel() {
                 ) : (
                   <>
                     <Flex justifyContent="between" alignItems="start">
-                      <Title>{note.title}</Title>
+                      <Title className="text-white">{note.title}</Title>
                       <Flex className="gap-1">
                         <Button 
                           icon={PencilIcon} 
@@ -226,14 +238,14 @@ export default function NotesPanel() {
                         />
                       </Flex>
                     </Flex>
-                    <Text className="mt-2 whitespace-pre-wrap">{note.content}</Text>
+                    <Text className="mt-2 whitespace-pre-wrap text-white">{note.content}</Text>
                     <Divider />
                     <Flex className="mt-2 justify-between items-center">
-                      <Text className="text-xs text-tremor-content">
+                      <Text className="text-xs text-gray-300">
                         Created: {formatDate(note.createdAt)}
                       </Text>
                       {note.updatedAt !== note.createdAt && (
-                        <Text className="text-xs text-tremor-content">
+                        <Text className="text-xs text-gray-300">
                           Updated: {formatDate(note.updatedAt)}
                         </Text>
                       )}
@@ -245,8 +257,8 @@ export default function NotesPanel() {
           ))}
         </Grid>
       ) : (
-        <Card className="bg-tremor-background-subtle">
-          <Text className="text-center text-tremor-content">
+        <Card className="bg-gray-900 border border-gray-700">
+          <Text className="text-center text-white">
             No notes yet. Create your first note above.
           </Text>
         </Card>
