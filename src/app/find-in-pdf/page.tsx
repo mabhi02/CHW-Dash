@@ -8,40 +8,57 @@ import { ArrowLeftIcon } from '@heroicons/react/24/outline';
 export default function FindInPDF() {
   const searchParams = useSearchParams();
   const [isSearching, setIsSearching] = useState(false);
+  const [isClient, setIsClient] = useState(false);
   
   // Get query parameters
-  const file = searchParams.get('file') || 'who-guide.pdf';
-  const page = parseInt(searchParams.get('page') || '1', 10);
-  const searchText = searchParams.get('text') || '';
+  const file = searchParams?.get('file') || 'who-guide.pdf';
+  const page = parseInt(searchParams?.get('page') || '1', 10);
+  const searchText = searchParams?.get('text') || '';
+  
+  // Set isClient to true when component mounts (client-side only)
+  useEffect(() => {
+    setIsClient(true);
+  }, []);
   
   useEffect(() => {
-    // Simple method: directly open the PDF with page parameter
-    // and call window.find() after a delay
-    const url = `/pdfs/${file}#page=${page}`;
-    const newWindow = window.open(url, '_blank');
+    // Only run this effect on the client side
+    if (!isClient) return;
     
-    // Give the PDF time to load, then search for text
-    if (newWindow && searchText) {
-      setIsSearching(true);
+    try {
+      // Simple method: directly open the PDF with page parameter
+      const url = `/pdfs/${file}#page=${page}`;
+      const newWindow = window.open(url, '_blank');
       
-      setTimeout(() => {
-        try {
-          // Try to find the text in the new window
-          newWindow.focus();
-          (newWindow as any).find(searchText);
-          
-          // Try again after a bit more time
-          setTimeout(() => {
+      // Give the PDF time to load, then search for text
+      if (newWindow && searchText) {
+        setIsSearching(true);
+        
+        setTimeout(() => {
+          try {
+            // Try to find the text in the new window
             newWindow.focus();
-            (newWindow as any).find(searchText);
-          }, 2000);
-        } catch (error) {
-          console.error('Error searching:', error);
-        }
-        setIsSearching(false);
-      }, 1500);
+            (newWindow as any).find?.(searchText);
+            
+            // Try again after a bit more time
+            setTimeout(() => {
+              try {
+                newWindow.focus();
+                (newWindow as any).find?.(searchText);
+              } catch (e) {
+                // Silently handle error
+              }
+            }, 2000);
+          } catch (error) {
+            // Silently handle error
+          }
+          setIsSearching(false);
+        }, 1500);
+      }
+    } catch (error) {
+      // Silently handle error
+      setIsSearching(false);
     }
-  }, [file, page, searchText]);
+  }, [file, page, searchText, isClient]);
   
   return (
     <div className="flex flex-col items-center justify-center h-screen bg-gray-900 text-white p-8">

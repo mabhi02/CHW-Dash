@@ -109,7 +109,6 @@ export const parseSourceString = (source: string): { fileName: string; page: num
   // First pass - exact matching
   for (const [pattern, pageNum] of Object.entries(textToPageMapping)) {
     if (sourceText.includes(pattern.toLowerCase())) {
-      console.log(`Matched pattern: "${pattern}" on page ${pageNum}`);
       return { fileName: 'who-guide.pdf', page: pageNum };
     }
   }
@@ -182,17 +181,12 @@ export const getPdfUrl = (source: string, textToHighlight?: string): string | nu
     return null;
   }
   
-  // Use our custom PDF viewer route
-  let url = `/pdf-viewer?file=${encodeURIComponent(fileName)}`;
+  // Use direct PDF URL with page parameter in hash
+  let url = `/pdfs/${encodeURIComponent(fileName)}`;
   
   // Add page parameter if available
   if (page !== null) {
-    url += `&page=${page}`;
-  }
-  
-  // Add search parameter if available
-  if (textToHighlight) {
-    url += `&search=${encodeURIComponent(textToHighlight)}`;
+    url += `#page=${page}`;
   }
   
   return url;
